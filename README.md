@@ -32,6 +32,7 @@ where every entry has a reason to be here. Here you will find:
 - [Toolkit](#toolkit)
 - [Resources](#resources)
 - [How the second brain works](#how-the-second-brain-works)
+- [Local agent tooling](#local-agent-tooling)
 - [Contributing](#contributing)
 - [License and credit](#license-and-credit)
 
@@ -471,6 +472,69 @@ Three rules the project rests on:
 - **Nothing is ingested until it is linked.** A page that lands unconnected is invisible within a week, so linking happens in the same run or the ingest is not finished.
 - **Contradictions are recorded, never overwritten.** Both positions stay, with dates and sources. The history of what you believed and why is the one thing your vault has that a search engine does not.
 - **No vector database until you need one.** Structured pages plus links answer questions chunk similarity cannot, at zero infrastructure cost. [When RAG earns its place](docs/07-retrieval/rag-on-top.md) names the threshold.
+
+---
+
+## Local agent tooling
+
+Optional tools that `CLAUDE.md` / `AGENTS.md` reference. Tested on macOS (arm64).
+
+| Tool | Purpose | Install | Status check |
+|---|---|---|---|
+| RTK | Condenses shell output | `brew install rtk` (Homebrew core; `rtk-ai/tap` also ships it, so you may need `brew trust rtk-ai/tap`) | `rtk --version` |
+| fastCRW (`crw`) | Fast web scrape, REST API on :3000 | `curl -fsSL https://fastcrw.com/install \| sh` ([fastcrw/crw](https://github.com/fastcrw/crw)) | `crw doctor` |
+| Lightpanda | Headless browser for JS pages, CDP on :9222 | `brew install lightpanda-io/browser/lightpanda` | `lightpanda version` |
+| CodeGraphContext (`cgc`) | Code knowledge graph | `pip install codegraphcontext` | `cgc --version` |
+| Headroom | Context compression | `pip install headroom-ai` | `headroom --version` |
+
+Not yet installed: JevGraph (non-code docs graph) and `ck` (context snapshots).
+
+### Register MCP servers with Claude
+
+```bash
+claude mcp add -s user codegraphcontext -- cgc mcp start
+claude mcp add -s user lightpanda -- lightpanda mcp
+claude mcp list   # both should show Connected
+```
+
+### Point crw at Lightpanda for JS rendering
+
+Create `~/.config/crw/config.toml`:
+
+```toml
+[renderer]
+mode = "auto"
+
+[renderer.lightpanda]
+ws_url = "ws://127.0.0.1:9222/"
+```
+
+### Start at login (launchd)
+
+Create `~/Library/LaunchAgents/dev.secondbrain.lightpanda.plist` and `dev.secondbrain.crw.plist`. Each needs `RunAtLoad` and `KeepAlive` set to true, and these `ProgramArguments`:
+
+- Lightpanda: `/opt/homebrew/bin/lightpanda serve --host 127.0.0.1 --port 9222`
+- crw: `/usr/local/bin/crw serve --host 127.0.0.1 --port 3000`
+
+Set `StandardOutPath` and `StandardErrorPath` to `~/Library/Logs/second-brain/<name>.log` (use an absolute path; launchd does not expand `~`). Then load them:
+
+```bash
+mkdir -p ~/Library/Logs/second-brain
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.secondbrain.lightpanda.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.secondbrain.crw.plist
+```
+
+Verify:
+
+```bash
+curl -s http://127.0.0.1:9222/json/version
+curl -s -X POST http://127.0.0.1:3000/v1/scrape -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","renderJs":true}'
+```
+
+Stop a service: `launchctl bootout gui/$(id -u)/dev.secondbrain.crw`.
+
+Both servers bind to `127.0.0.1` on purpose. crw's API has no authentication by default, so do not bind it to `0.0.0.0`.
 
 ---
 
